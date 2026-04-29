@@ -237,27 +237,41 @@ uint16_t parse_iana_suboption(char* buf, size_t len)
 {
   size_t current_pos = 0;
   char option_value[1024];
-  while (current_pos < len)
+  while (current_pos + 2 * sizeof(uint16_t) <= len)
     {
       uint16_t option_type, option_len;
-      memcpy(&option_type,buf + current_pos, sizeof(uint16_t));
-      memcpy(&option_len,buf + current_pos + sizeof(uint16_t), sizeof(uint16_t));
+      memcpy(&option_type, buf + current_pos, sizeof(uint16_t));
+      memcpy(&option_len, buf + current_pos + sizeof(uint16_t), sizeof(uint16_t));
       option_type = ntohs(option_type);
       option_len = ntohs(option_len);
       current_pos += 2 * sizeof(uint16_t);
+
+      if (current_pos + option_len > len)
+	return -2;
+
       if (option_type == STATUS_CODE)
 	{
 	  uint16_t status;
+	  size_t message_len;
+
+	  if (option_len < sizeof(uint16_t))
+	    return -2;
+
 	  memcpy(&status, buf + current_pos, sizeof(uint16_t));
 	  status = ntohs(status);
 	  if (status != SUCCESS)
 	    {
-	      memcpy(option_value, buf + current_pos + sizeof(uint16_t) , option_len - sizeof(uint16_t));
-	      option_value[option_len-sizeof(uint16_t)] ='\0';
+	      message_len = option_len - sizeof(uint16_t);
+	      if (message_len >= sizeof(option_value))
+		message_len = sizeof(option_value) - 1;
+	      memcpy(option_value, buf + current_pos + sizeof(uint16_t), message_len);
+	      option_value[message_len] = '\0';
 	      fprintf(stderr, "Error: %s\n", option_value);
-            }
+	    }
 	  return status;
-        }
+	}
+
+      current_pos += option_len;
     }
 
   return -2;
@@ -266,7 +280,12 @@ uint16_t parse_iana_suboption(char* buf, size_t len)
 int16_t parse_packet(char* buf, size_t len)
 {
   int16_t ret = -1;
-  uint8_t type = buf[0];
+  uint8_t type;
+
+  if (len < 4)
+    return NOT_REPLY_CODE;
+
+  type = buf[0];
   /*skipping tx id. you need it, uncomment following line
     uint16_t tx_id = ntohs((buf[1] <<16) + (buf[2] <<8) + buf[3]);
   */
@@ -275,7 +294,7 @@ int16_t parse_packet(char* buf, size_t len)
     return NOT_REPLY_CODE;
   
   char option_value[1024];
-  while (current_pos < len)
+  while (current_pos + 2 * sizeof(uint16_t) <= len)
     {
       uint16_t option_type, option_len;
       memcpy(&option_type,buf + current_pos, sizeof(uint16_t));
@@ -283,14 +302,26 @@ int16_t parse_packet(char* buf, size_t len)
       option_type = ntohs(option_type);
       option_len = ntohs(option_len);
       current_pos += 2 * sizeof(uint16_t);
+      if (current_pos + option_len > len)
+	return -1;
+
       if (option_type == STATUS_CODE)
 	{
 	  uint16_t status;
+	  size_t message_len;
+
+	  if (option_len < sizeof(uint16_t))
+	    return -1;
+
 	  memcpy(&status, buf + current_pos, sizeof(uint16_t));
 	  status = ntohs(status);
 	  if (status != SUCCESS)
 	    {
-	      memcpy(option_value, buf + current_pos +sizeof(uint16_t) , option_len -sizeof(uint16_t));
+	      message_len = option_len - sizeof(uint16_t);
+	      if (message_len >= sizeof(option_value))
+		message_len = sizeof(option_value) - 1;
+	      memcpy(option_value, buf + current_pos + sizeof(uint16_t), message_len);
+	      option_value[message_len] = '\0';
 	      fprintf(stderr, "Error: %d %s\n", status, option_value);
 	      return status;
 	    }
@@ -301,6 +332,8 @@ int16_t parse_packet(char* buf, size_t len)
 
       if (option_type == IA_NA )
 	{
+	  if (option_len < 24)
+	    return -1;
 	  uint16_t result = parse_iana_suboption(buf + current_pos +24, option_len -24);
 	  if (result)
 	    return result;
