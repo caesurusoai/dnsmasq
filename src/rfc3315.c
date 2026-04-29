@@ -257,6 +257,8 @@ static int dhcp6_maybe_relay(struct state *state, unsigned char *inbuff, size_t 
 	      /* RFC6221 para 4 */
 	      if (!IN6_IS_ADDR_UNSPECIFIED(&align))
 		state->link_address = &align;
+	      else
+		state->link_address = NULL;
 	      if (!dhcp6_maybe_relay(state, opt6_ptr(opt, 0), opt6_len(opt), client_addr, now))
 		return 0;
 	    }
